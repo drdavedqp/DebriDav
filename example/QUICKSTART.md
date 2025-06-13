@@ -11,7 +11,7 @@ Docker, docker compose, and a basic understanding of how the *arr ecosystem work
 Open the .env file for editing.
 Typically you need to change two values:
 
-- Set `DEBRIDAV_DEBRID-CLIENTS` to a comma separated list of debrid providers you would like to use. eg.
+- Set `DEBRIDAV_DEBRID_CLIENTS` to a comma separated list of debrid providers you would like to use. eg.
   `premiumize,real_debrid`, or `premiumize`. If you add multiple providers they will be preferred in the order
   specified. if `premiumize,real_debrid` is used, Real Debrid will only be used for torrents not cached at Premiumize.
 - If using Premiumize, set the `PREMIUMIZE_API-KEY` property to your Premiumize api key, obtained by clicking the "Show
