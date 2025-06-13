@@ -44,8 +44,8 @@ import java.time.Duration
 import java.time.Instant
 import java.util.*
 
-const val TIMEOUT_MS = 5_000L
-const val RETRIES = 3
+const val TIMEOUT_MS = 15_000L
+const val RETRIES = 3L
 const val RETRY_WAIT_MS = 500L
 
 const val MINIMUM_RUNTIME_SECONDS = 360L
