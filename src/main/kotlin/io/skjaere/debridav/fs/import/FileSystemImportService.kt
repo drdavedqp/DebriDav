@@ -4,6 +4,7 @@ import io.skjaere.debridav.category.Category
 import io.skjaere.debridav.category.CategoryService
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridProvider
+import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.debrid.model.CachedFile
 import io.skjaere.debridav.debrid.model.ClientError
 import io.skjaere.debridav.debrid.model.MissingFile
@@ -111,7 +112,7 @@ class FileSystemImportService(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     suspend fun CoroutineScope.getFlowOfFilesToImport(): ReceiveChannel<ImportContext> =
-        this.produce<ImportContext> {
+        this.produce {
             if (!Path.of(debridavConfigurationProperties.rootPath).exists()) {
                 logger.warn(
                     "Can't start import. Root directory does not exist: " +
@@ -133,7 +134,7 @@ class FileSystemImportService(
         }
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    private suspend fun CoroutineScope.saveEntity(channel: ReceiveChannel<ImportContext>) {
+    private suspend fun saveEntity(channel: ReceiveChannel<ImportContext>) {
         channel.consumeEach { ctx ->
             try {
                 transactionTemplate.execute {
@@ -163,12 +164,12 @@ class FileSystemImportService(
 
     private fun saveTorrentEntity(ctx: ImportContext, entity: DbEntity) {
         val torrent: Torrent = TorrentService.getHashFromMagnet(
-            ctx.fileContents!!.magnet
+            TorrentMagnet(ctx.fileContents!!.magnet)
         )?.let { hash ->
-            torrentRepository.getByHashIgnoreCase(hash) ?: run {
+            torrentRepository.getByHashIgnoreCase(hash.hash) ?: run {
                 val newTorrent = Torrent()
-                newTorrent.name = TorrentService.getNameFromMagnet(ctx.fileContents.magnet)
-                newTorrent.hash = hash
+                newTorrent.name = TorrentService.getNameFromMagnet(TorrentMagnet(ctx.fileContents.magnet))
+                newTorrent.hash = hash.hash
                 newTorrent.category = importCategory
                 newTorrent.savePath = ""
                 newTorrent
@@ -217,7 +218,7 @@ class FileSystemImportService(
         entity.name = file.name
         entity.lastModified = file.lastModified()
         entity.size = file.length()
-        entity.blob = Blob(BlobProxy.generateProxy(file.inputStream(), file.length()))
+        entity.blob = Blob(BlobProxy.generateProxy(file.inputStream(), file.length()), file.length())
 
         return entity
     }
@@ -302,11 +303,12 @@ class FileSystemImportService(
         )
     }
 
-    fun io.skjaere.debridav.debrid.model.DebridProvider.toNewProvider(): DebridProvider {
+    fun DebridProvider.toNewProvider(): DebridProvider {
         return when (this) {
-            io.skjaere.debridav.debrid.model.DebridProvider.REAL_DEBRID -> DebridProvider.REAL_DEBRID
-            io.skjaere.debridav.debrid.model.DebridProvider.PREMIUMIZE -> DebridProvider.PREMIUMIZE
-            io.skjaere.debridav.debrid.model.DebridProvider.EASYNEWS -> DebridProvider.EASYNEWS
+            DebridProvider.REAL_DEBRID -> DebridProvider.REAL_DEBRID
+            DebridProvider.PREMIUMIZE -> DebridProvider.PREMIUMIZE
+            DebridProvider.EASYNEWS -> DebridProvider.EASYNEWS
+            DebridProvider.TORBOX -> DebridProvider.TORBOX
         }
     }
 

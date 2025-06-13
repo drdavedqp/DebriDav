@@ -28,7 +28,7 @@ import io.skjaere.debridav.fs.DebridFileContents
 import io.skjaere.debridav.fs.MissingFile
 import io.skjaere.debridav.fs.NetworkError
 import io.skjaere.debridav.fs.ProviderError
-import io.skjaere.debridav.fs.UnknownError
+import io.skjaere.debridav.fs.UnknownDebridLinkError
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -57,6 +57,9 @@ class DebridCachedContentService(
 
     init {
         require(debridClients.isNotEmpty()) { "No debrid clients configured" }
+        debridClients.forEach { client ->
+            logger.info("${client.getProvider()} enabled")
+        }
     }
 
     suspend fun addContent(key: CachedContentKey): List<DebridFileContents> = coroutineScope {
@@ -133,9 +136,7 @@ class DebridCachedContentService(
         )
         return when (e) {
             is DebridClientError -> ClientErrorIsCachedResponse(e, debridProvider)
-
             is DebridProviderError -> ProviderErrorIsCachedResponse(e, debridProvider)
-
             is UnknownDebridError -> GeneralErrorIsCachedResponse(e, debridProvider)
         }
     }
@@ -158,6 +159,7 @@ class DebridCachedContentService(
         .map { (_, files) -> files.maxByOrNull { it.path!!.length }!! }
         .map { it.path!! }
 
+
     fun GetCachedFilesResponses.getResponseByFileWithPathAndProvider(
         path: String,
         debridProvider: DebridProvider
@@ -167,28 +169,46 @@ class DebridCachedContentService(
 
             is ProviderErrorGetCachedFilesResponse -> ProviderError(
                 debridProvider,
-                Instant.now(clock).toEpochMilli()
+                clock.instant().toEpochMilli()
             )
 
             is NetworkErrorGetCachedFilesResponse -> NetworkError(
                 debridProvider,
-                Instant.now(clock).toEpochMilli()
+                clock.instant().toEpochMilli()
             )
 
-            is SuccessfulGetCachedFilesResponse -> response.getCachedFiles()
-                .firstOrNull { it.path!!.split("/").last() == path.split("/").last() }
+            is SuccessfulGetCachedFilesResponse -> getFileFromPath(response, path)
 
             is ClientErrorGetCachedFilesResponse -> ClientError(
                 debridProvider,
-                Instant.now(clock).toEpochMilli()
+                clock.instant().toEpochMilli()
             )
 
-            is UnknownError -> UnknownError(
+            is UnknownDebridLinkError -> UnknownDebridLinkError(
                 debridProvider,
-                Instant.now(clock).toEpochMilli()
+                clock.instant().toEpochMilli()
             )
         }
     }
+
+    //TODO: refactor me
+    companion object {
+        fun getFileFromPath(
+            response: GetCachedFilesResponse,
+            path: String
+        ): CachedFile? = response.getCachedFiles()
+            .filter {
+                it.path!!.split("/").last() == path.split("/").last()
+            }.let {
+                if (it.size > 1) {
+                    it.firstOrNull {
+                        it.path!!.split("/").takeLast(2).reversed().joinToString("/") == path.split("/").takeLast(2)
+                            .reversed().joinToString("/")
+                    }
+                } else it.firstOrNull()
+            }
+    }
+
 
     private fun createDebridFileContents(
         cachedFiles: List<DebridFile>,
@@ -206,7 +226,7 @@ class DebridCachedContentService(
         }
         contents.originalPath = getPathFromCachedFiles(cachedFiles)
         contents.size = cachedFiles.first { it is CachedFile }.let { (it as CachedFile).size }
-        contents.modified = Instant.now(clock).toEpochMilli()
+        contents.modified = clock.instant().toEpochMilli()
         contents.debridLinks = cachedFiles.toMutableList()
         contents.mimeType = cachedFiles.first { it is CachedFile }.let { (it as CachedFile).mimeType }
         return contents
@@ -239,7 +259,7 @@ class DebridCachedContentService(
         .retry(debridavConfigurationProperties.retriesOnProviderError) { e ->
             (e.isRetryable()).also { if (it) delay(debridavConfigurationProperties.delayBetweenRetries.toMillis()) }
         }.catch { e ->
-            logger.error("error getting cached files from ${debridClient.getProvider()}", e)
+            logger.error("error getting cached files from ${debridClient.getProvider()} : ${e.message}")
             when (e) {
                 is DebridProviderError -> emit(ProviderErrorGetCachedFilesResponse(debridClient.getProvider()))
                 is DebridClientError -> emit(ClientErrorGetCachedFilesResponse(debridClient.getProvider()))

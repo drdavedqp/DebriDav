@@ -76,6 +76,26 @@ open class RemotelyCachedEntity : DbEntity() {
             .debridLinks
             .filter { debridClients.contains(it.provider) }
             .all { it is MissingFile }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as RemotelyCachedEntity
+
+        if (contents != other.contents) return false
+        if (hash != other.hash) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = contents?.hashCode() ?: 0
+        result = 31 * result + (hash?.hashCode() ?: 0)
+        return result
+    }
+
+
 }
 
 @Entity
@@ -91,16 +111,14 @@ open class Blob() {
     @GeneratedValue(strategy = GenerationType.AUTO)
     open var id: Long? = null
 
+    open var size: Long? = null
+
     @Lob
     @Basic(fetch = FetchType.LAZY)
     open var localContents: java.sql.Blob? = null
 
-    constructor(blob: java.sql.Blob) : this() {
+    constructor(blob: java.sql.Blob, size: Long) : this() {
         this.localContents = blob
+        this.size = size
     }
-    /*constructor(bytes: InputStream) : this() {
-        bytes.transferTo(
-            this.localContents!!.setBinaryStream(0)
-        )
-    }*/
 }

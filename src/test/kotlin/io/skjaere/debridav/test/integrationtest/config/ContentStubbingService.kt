@@ -10,14 +10,19 @@ import org.springframework.stereotype.Service
 
 @Service
 class ContentStubbingService(@Value("\${mockserver.port}") val port: Int) {
-    fun mockWorkingRangeStream() {
+    val oneHundredKilobytes = IntRange(1, 1024 * 100).map { Byte.MAX_VALUE }.toByteArray()
+
+    fun getBytes(startByte: Long, endByte: Long): ByteArray =
+        LongRange(startByte, endByte).map { Byte.MAX_VALUE }.toByteArray()
+
+    fun mock100kbRangeStream(startByte: Long, endByte: Long) {
         MockServerClient(
             "localhost",
             port
         ).`when`(
             HttpRequest.request()
                 .withMethod("GET")
-                .withHeader(Header("Range", "bytes=0-3"))
+                //.withHeader(Header("Range", "bytes=0-3"))
                 .withPath(
                     "/workingLink"
                 ),
@@ -25,8 +30,8 @@ class ContentStubbingService(@Value("\${mockserver.port}") val port: Int) {
         ).respond(
             HttpResponse.response()
                 .withStatusCode(206)
-                .withBody("it w")
-                .withHeader(Header("content-range", "bytes 0-3/8"))
+                .withBody(getBytes(startByte, endByte))
+                .withHeader(Header("content-range", "bytes $startByte-$endByte/${endByte + 1}"))
         )
         MockServerClient(
             "localhost",
@@ -44,8 +49,81 @@ class ContentStubbingService(@Value("\${mockserver.port}") val port: Int) {
         )
     }
 
-    fun mockWorkingStream() = mockWorkingStream("/workingLink")
-    fun mockWorkingStream(path: String) {
+    fun mock100kbRangeStreamWithDelay(startByte: Int, endByte: Int) {
+        MockServerClient(
+            "localhost",
+            port
+        ).`when`(
+            HttpRequest.request()
+                .withMethod("GET")
+                //.withHeader(Header("Range", "bytes=0-3"))
+                .withPath(
+                    "/workingLink"
+                ),
+            //Times.exactly(1)
+        ).respond(
+            HttpResponse.response()
+                .withDelay(org.mockserver.model.Delay.milliseconds(500))
+                .withStatusCode(206)
+                .withBody(oneHundredKilobytes)
+                .withHeader(Header("content-range", "bytes $startByte-$endByte/${endByte + 1}"))
+        )
+        MockServerClient(
+            "localhost",
+            port
+        ).`when`(
+            HttpRequest.request()
+                .withMethod("HEAD")
+                .withPath(
+                    "/workingLink"
+                ),
+            Times.exactly(2)
+        ).respond(
+            HttpResponse.response()
+                .withStatusCode(200)
+        )
+
+
+    }
+
+    fun mockWorkingRangeStream() = mockWorkingRangeStream(0L, 3L, 8L, "it w".toByteArray())
+    fun mockWorkingRangeStream(start: Long, end: Long, totalSize: Long, response: ByteArray) {
+        MockServerClient(
+            "localhost",
+            port
+        ).`when`(
+            HttpRequest.request()
+                .withMethod("GET")
+                .withHeader(Header("Range", "bytes=$start-$end"))
+                .withPath(
+                    "/workingLink"
+                ),
+            Times.exactly(1)
+        ).respond(
+            HttpResponse.response()
+                .withStatusCode(206)
+                .withBody(response)
+                .withHeader(Header("content-range", "bytes $start-$end/$totalSize"))
+        )
+        MockServerClient(
+            "localhost",
+            port
+        ).`when`(
+            HttpRequest.request()
+                .withMethod("HEAD")
+                .withPath(
+                    "/workingLink"
+                ),
+            Times.exactly(2)
+        ).respond(
+            HttpResponse.response()
+                .withStatusCode(200)
+        )
+    }
+
+    fun mockWorkingStream(url: String) = mockWorkingStream(url, "it works!".toByteArray())
+    fun mockWorkingStream() = mockWorkingStream("/workingLink", "it works!".toByteArray())
+    fun mockWorkingStream(path: String, response: ByteArray) {
         MockServerClient(
             "localhost",
             port
@@ -59,7 +137,7 @@ class ContentStubbingService(@Value("\${mockserver.port}") val port: Int) {
         ).respond(
             HttpResponse.response()
                 .withStatusCode(200)
-                .withBody("it works!")
+                .withBody(response)
         )
         MockServerClient(
             "localhost",
@@ -70,8 +148,8 @@ class ContentStubbingService(@Value("\${mockserver.port}") val port: Int) {
                 .withPath(
                     path
                 ),
-            Times.exactly(2)
-        ).respond(
+
+            ).respond(
             HttpResponse.response()
                 .withStatusCode(200)
         )

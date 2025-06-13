@@ -9,8 +9,8 @@ import io.skjaere.debridav.fs.DebridFileContents
 import io.skjaere.debridav.fs.MissingFile
 import io.skjaere.debridav.fs.ProviderError
 
-const val MAGNET = "magnet:?xt=urn:btih:hash&dn=test&tr="
-const val SECOND_MAGNET = "magnet:?xt=urn:btih:hash2&dn=second-name&tr="
+const val MAGNET = "magnet:?xt=urn:btih:6638e282767b7c710ff561a5cfd4f7e4ceb5d448&dn=test&tr="
+const val SECOND_MAGNET = "magnet:?xt=urn:btih:6638e282767b7c710ff561a5cfd4f7e4ceb5d449&dn=second-name&tr="
 val premiumizeCachedFile = CachedFile(
     path = "/foo/bar.mkv",
     provider = DebridProvider.PREMIUMIZE,
@@ -62,7 +62,7 @@ fun DebridFileContents.deepCopy(): DebridFileContents {
         is DebridCachedUsenetReleaseContent -> DebridCachedUsenetReleaseContent(this.releaseName!!)
         else -> error("Unexpected type: ${this::class}")
     }
-    copy.debridLinks = this.debridLinks!!.map { link ->
+    copy.debridLinks = this.debridLinks.map { link ->
         link.copy()
     } as MutableList<DebridFile>
     copy.mimeType = this.mimeType

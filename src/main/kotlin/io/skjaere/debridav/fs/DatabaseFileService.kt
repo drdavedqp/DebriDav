@@ -2,9 +2,11 @@ package io.skjaere.debridav.fs
 
 import io.ipfs.multibase.Base58
 import io.skjaere.debridav.cache.FileChunkCachingService
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.repository.DebridFileContentsRepository
 import io.skjaere.debridav.repository.UsenetRepository
 import io.skjaere.debridav.torrent.TorrentRepository
+import jakarta.persistence.EntityManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -21,13 +23,16 @@ import java.io.InputStream
 import java.time.Instant
 
 private const val ROOT_NODE = "ROOT"
+private const val MEGABYTE = 1024 * 1024
 
 @Service
 class DatabaseFileService(
     private val debridFileRepository: DebridFileContentsRepository,
+    private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val torrentRepository: TorrentRepository,
     private val usenetRepository: UsenetRepository,
-    private val fileChunkCachingService: FileChunkCachingService
+    private val fileChunkCachingService: FileChunkCachingService,
+    private val entityManager: EntityManager,
 ) {
     private val logger = LoggerFactory.getLogger(DatabaseFileService::class.java)
     private val lock = Mutex()
@@ -43,9 +48,7 @@ class DatabaseFileService(
 
     @Transactional
     fun createDebridFile(
-        path: String,
-        hash: String,
-        debridFileContents: DebridFileContents
+        path: String, hash: String, debridFileContents: DebridFileContents
     ): RemotelyCachedEntity = runBlocking {
         val directory = getOrCreateDirectory(path.substringBeforeLast("/"))
         val name = path.substringAfterLast("/")
@@ -75,6 +78,17 @@ class DatabaseFileService(
     }
 
     @Transactional
+    fun saveDbEntity(dbItem: DbEntity) {
+        when (dbItem) {
+            is RemotelyCachedEntity -> {
+                debridFileRepository.save(dbItem)
+            }
+
+            else -> error("Cant write DebridFileContents to ${dbItem.javaClass.simpleName}")
+        }
+    }
+
+    @Transactional
     fun writeDebridFileContentsToFile(dbItem: DbEntity, debridFileContents: DebridFileContents) {
         when (dbItem) {
             is RemotelyCachedEntity -> {
@@ -88,6 +102,14 @@ class DatabaseFileService(
 
     @Transactional
     fun writeContentsToLocalFile(dbItem: LocalEntity, contents: InputStream, size: Long) {
+        if (size / MEGABYTE > debridavConfigurationProperties.localEntityMaxSizeMb
+            && debridavConfigurationProperties.localEntityMaxSizeMb != 0
+        ) {
+            throw IllegalArgumentException(
+                "Size: ${size / MEGABYTE} MB is greater than set maximum: " +
+                        "${debridavConfigurationProperties.localEntityMaxSizeMb}"
+            )
+        }
         dbItem.blob!!.localContents = BlobProxy.generateProxy(contents, size)
         debridFileRepository.save(dbItem)
     }
@@ -102,14 +124,11 @@ class DatabaseFileService(
                 debridFileRepository.save(dbItem)
                 if (directoriesHaveSameParent(dbItem.fileSystemPath()!!, destination)) {
                     debridFileRepository.renameDirectory(
-                        dbItem.path!!,
-                        Base58.encode(name.encodeToByteArray()),
-                        name
+                        dbItem.path!!, Base58.encode(name.encodeToByteArray()), name
                     )
                 } else {
                     debridFileRepository.moveDirectory(
-                        dbItem,
-                        destination.pathToLtree()
+                        dbItem, destination.pathToLtree()
 
                     )
                 }
@@ -117,10 +136,9 @@ class DatabaseFileService(
         }
     }
 
-    private fun moveFile(
-        destination: String,
-        dbFile: DbEntity,
-        name: String
+    @Transactional
+    fun moveFile(
+        destination: String, dbFile: DbEntity, name: String
     ) {
         if (dbFile is DbDirectory) error("entity is directory")
         val destinationDirectory = getOrCreateDirectory(destination)
@@ -133,9 +151,24 @@ class DatabaseFileService(
     fun deleteFile(file: DbEntity) {
         when (file) {
             is RemotelyCachedEntity -> deleteRemotelyCachedEntity(file)
-            is DbDirectory -> debridFileRepository.delete(file)//deleteDirectory(file)
-            is LocalEntity -> debridFileRepository.delete(file)
+            is DbDirectory -> debridFileRepository.delete(file)
+            is LocalEntity -> {
+                deleteLargeObjectForLocalEntity(file)
+                debridFileRepository.delete(file)
+            }
         }
+    }
+
+    private fun deleteLargeObjectForLocalEntity(file: LocalEntity) {
+        entityManager.createNativeQuery(
+            """
+            SELECT lo_unlink(b.loid) from (
+                select distinct local_contents as loid from blob b
+                where b.id=${file.blob!!.id}
+            ) as b
+           
+        """.trimMargin()
+        ).resultList
     }
 
     private fun deleteRemotelyCachedEntity(file: RemotelyCachedEntity) {
@@ -163,6 +196,9 @@ class DatabaseFileService(
             is DebridCachedUsenetReleaseContent -> {
                 usenetRepository.deleteByHashIgnoreCase(debridFile.hash!!)
                 debridFileRepository.getByHash(debridFile.hash!!).forEach {
+                    if (it is RemotelyCachedEntity) {
+                        fileChunkCachingService.deleteChunksForFile(it)
+                    }
                     debridFileRepository.delete(it)
                 }
             }
@@ -175,30 +211,46 @@ class DatabaseFileService(
         val directory = getOrCreateDirectory(path.substringBeforeLast("/"))
         val localFile = LocalEntity()
 
-        val blob = if (size == null) {
+        if (size == null) {
             val bytes = inputStream.readAllBytes()
-            localFile.size = bytes.size.toLong()
-            BlobProxy.generateProxy(bytes)
+            if (bytes.size / MEGABYTE > debridavConfigurationProperties.localEntityMaxSizeMb
+                && debridavConfigurationProperties.localEntityMaxSizeMb != 0
+            ) {
+                throw IllegalArgumentException(
+                    "Size: ${bytes.size.times(MEGABYTE)} MB is greater than set maximum: " +
+                            "${debridavConfigurationProperties.localEntityMaxSizeMb}"
+                )
+            }
+            val streamSize = bytes.size.toLong()
+            localFile.size = streamSize
+            localFile.blob = Blob(BlobProxy.generateProxy(bytes.inputStream(), streamSize), streamSize)
         } else {
+            if (size / MEGABYTE > debridavConfigurationProperties.localEntityMaxSizeMb
+                && debridavConfigurationProperties.localEntityMaxSizeMb != 0
+                && debridavConfigurationProperties.localEntityMaxSizeMb != 0
+            ) {
+                throw IllegalArgumentException(
+                    "Size: ${size / MEGABYTE} MB is greater than set maximum: " +
+                            "${debridavConfigurationProperties.localEntityMaxSizeMb}"
+                )
+            }
             localFile.size = size
-            BlobProxy.generateProxy(inputStream, size)
+            localFile.blob = Blob(BlobProxy.generateProxy(inputStream, size), size)
         }
         localFile.name = path.substringAfterLast("/")
         localFile.directory = directory
         localFile.lastModified = System.currentTimeMillis()
-
-        localFile.blob = Blob(blob)
 
         return debridFileRepository.save(localFile)
     }
 
 
     fun getFileAtPath(path: String): DbEntity? {
-        return debridFileRepository.getDirectoryByPath(path.pathToLtree())
-            ?: debridFileRepository.getDirectoryByPath(path.getDirectoryFromPath().pathToLtree())
-                ?.let { directory ->
-                    return debridFileRepository.findByDirectoryAndName(directory, path.substringAfterLast("/"))
-                }
+        return debridFileRepository.getDirectoryByPath(path.pathToLtree()) ?: debridFileRepository.getDirectoryByPath(
+            path.getDirectoryFromPath().pathToLtree()
+        )?.let { directory ->
+            return debridFileRepository.findByDirectoryAndName(directory, path.substringAfterLast("/"))
+        }
 
     }
 
@@ -211,25 +263,22 @@ class DatabaseFileService(
     suspend fun getChildren(directory: DbDirectory): List<DbEntity> = withContext(Dispatchers.IO) {
         listOf(
             async { debridFileRepository.getChildrenByDirectory(directory) },
-            async { debridFileRepository.getByDirectory(directory) }
-        ).awaitAll()
-            .flatten()
+            async { debridFileRepository.getByDirectory(directory) }).awaitAll().flatten()
     }
 
     @Transactional
     fun getOrCreateDirectory(path: String): DbDirectory = runBlocking {
         lock.withLock {
-            getDirectoryTreePaths(path)
-                .map {
-                    val directoryEntity = debridFileRepository.getDirectoryByPath(it.pathToLtree())
-                    if (directoryEntity == null) {
-                        val newDirectoryEntity = DbDirectory()
-                        newDirectoryEntity.path = it.pathToLtree()
-                        newDirectoryEntity.name = if (it != "/") it.substringAfterLast("/") else null
-                        newDirectoryEntity.lastModified = Instant.now().toEpochMilli()
-                        debridFileRepository.save(newDirectoryEntity)
-                    } else directoryEntity
-                }.last()
+            getDirectoryTreePaths(path).map {
+                val directoryEntity = debridFileRepository.getDirectoryByPath(it.pathToLtree())
+                if (directoryEntity == null) {
+                    val newDirectoryEntity = DbDirectory()
+                    newDirectoryEntity.path = it.pathToLtree()
+                    newDirectoryEntity.name = if (it != "/") it.substringAfterLast("/") else null
+                    newDirectoryEntity.lastModified = Instant.now().toEpochMilli()
+                    debridFileRepository.save(newDirectoryEntity)
+                } else directoryEntity
+            }.last()
         }
     }
 
@@ -251,10 +300,8 @@ class DatabaseFileService(
 
     private fun String.pathToLtree(): String {
         return if (this == "/") ROOT_NODE else {
-            this.split("/")
-                .filter { it.isNotBlank() }
-                .joinToString(separator = ".") { Base58.encode(it.encodeToByteArray()) }
-                .let { "$ROOT_NODE.$it" }
+            this.split("/").filter { it.isNotBlank() }
+                .joinToString(separator = ".") { Base58.encode(it.encodeToByteArray()) }.let { "$ROOT_NODE.$it" }
         }
     }
 

@@ -5,6 +5,7 @@ import com.github.sardine.DavResource
 import com.github.sardine.SardineFactory
 import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
+import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.DebridFileContents
@@ -104,7 +105,7 @@ class QBittorrentEmulationIT {
         // then
         val type = objectMapper.typeFactory.constructCollectionType(
             List::class.java,
-            io.skjaere.debridav.torrent.TorrentsInfoResponse::class.java
+            TorrentsInfoResponse::class.java
         )
         val torrentsInfoResponse = webTestClient.get()
             .uri("/api/v2/torrents/info?category=test")
@@ -112,7 +113,7 @@ class QBittorrentEmulationIT {
             .expectStatus().is2xxSuccessful
             .expectBody(String::class.java)
             .returnResult().responseBody
-        val parsedResponse: List<io.skjaere.debridav.torrent.TorrentsInfoResponse> =
+        val parsedResponse: List<TorrentsInfoResponse> =
             objectMapper.readValue(torrentsInfoResponse, type)
 
         assertEquals("/mnt/debridav/downloads/test", parsedResponse.first().contentPath)
@@ -221,7 +222,7 @@ class QBittorrentEmulationIT {
             .expectStatus().is2xxSuccessful
 
         torrentRepository
-            .getByHashIgnoreCase(TorrentService.getHashFromMagnet(MAGNET)!!)!!
+            .getByHashIgnoreCase(TorrentService.getHashFromMagnet(TorrentMagnet(MAGNET))!!.hash)!!
             .let { torrent ->
                 torrentRepository.delete(torrent)
             }
