@@ -35,7 +35,7 @@ import java.nio.charset.StandardCharsets
 import java.time.Instant
 import java.util.*
 
-const val TIMEOUT_MS = 5_000L
+const val TIMEOUT_MS = 15_000L
 const val RETRIES = 3L
 const val MINIMUM_RUNTIME_SECONDS = 360L
 const val MINIMUM_RELEASE_SIZE_MB = 400
