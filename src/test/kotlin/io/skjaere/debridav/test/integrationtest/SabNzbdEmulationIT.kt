@@ -114,7 +114,7 @@ class SabNzbdEmulationIT {
         val history: SabnzbdFullHistoryResponse =
             webTestClient.post().uri("/api").body(BodyInserters.fromMultipartData(historyParts.build())).exchange()
                 .expectStatus().is2xxSuccessful.expectBody().jsonPath("$.history.slots[0].storage")
-                .isEqualTo("/data/downloads/releaseName").jsonPath("$.history.slots[0].status").isEqualTo("COMPLETED")
+                .isEqualTo("/mnt/debridav/downloads/releaseName").jsonPath("$.history.slots[0].status").isEqualTo("COMPLETED")
                 .returnResult().let { deserializer.decodeFromString(it.responseBodyContent!!.decodeToString()) }
 
         val deleteRequestParts = MultipartBodyBuilder()
@@ -139,7 +139,7 @@ class SabNzbdEmulationIT {
         parts.part("mode", "get_config")
         webTestClient.post().uri("/api").body(BodyInserters.fromMultipartData(parts.build())).exchange()
             .expectStatus().is2xxSuccessful.expectBody().jsonPath("$.config.misc.download_dir")
-            .isEqualTo("/data/downloads").jsonPath("$.config.misc.complete_dir").isEqualTo("/data/downloads")
+            .isEqualTo("/mnt/debridav/downloads").jsonPath("$.config.misc.complete_dir").isEqualTo("/mnt/debridav/downloads")
     }
 
     @Test
