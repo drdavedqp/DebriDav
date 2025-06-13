@@ -116,7 +116,7 @@ class QBittorrentEmulationIT {
         val parsedResponse: List<TorrentsInfoResponse> =
             objectMapper.readValue(torrentsInfoResponse, type)
 
-        assertEquals("/data/downloads/test", parsedResponse.first().contentPath)
+        assertEquals("/mnt/debridav/downloads/test", parsedResponse.first().contentPath)
     }
 
     @Test

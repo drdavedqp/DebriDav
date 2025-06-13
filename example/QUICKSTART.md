@@ -17,7 +17,7 @@ Docker, docker compose, and a basic understanding of how the *arr ecosystem work
 Open the .env file for editing.
 Typically you need to change two values:
 
-- Set `DEBRIDAV_DEBRID-CLIENTS` to a comma separated list of debrid providers you would like to use. eg.
+- Set `DEBRIDAV_DEBRID_CLIENTS` to a comma separated list of debrid providers you would like to use. eg.
   `premiumize,real_debrid`, or `premiumize`. If you add multiple providers they will be preferred in the order
   specified. if `premiumize,real_debrid` is used, Real Debrid will only be used for torrents not cached at Premiumize.
 - If using Premiumize, set the `PREMIUMIZE_API-KEY` property to your Premiumize api key, obtained by clicking the "Show
@@ -36,7 +36,7 @@ docker compose:
 | NAME                           | Explanation                                                                                                                                                    | Default            |
 |--------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------|
 | DEBRIDAV_MOUNT_PATH_LOCAL_FS   | The path where DebriDav will be mounted on your host filesystem.                                                                                               | ./debridav         |
-| DEBRIDAV_MOUNT_PATH_CONTAINERS | The path where DebriDav will be mounted inside the docker containers. If kept at it's default values, downloads will be visible to the arrs in /data/downloads | /data              |
+| DEBRIDAV_MOUNT_PATH_CONTAINERS | The path where DebriDav will be mounted inside the docker containers. If kept at it's default values, downloads will be visible to the arrs in /mnt/debridav/downloads | /mnt/debridav |
 | DEBRIDAV_ROOT_HOST_FS          | The path on the host filesystem DebriDav will use for storage                                                                                                  | ./debridav-storage |
 
 ## Start the services
@@ -102,11 +102,11 @@ From the directory containing `docker-compose.yaml`, create three new directorie
 
 Then, in both Sonarr and Radarr, navigate to Settings-> Media Management add click "Add Root Folder"
 
-- For Radarr, select /data/movies
-- For Sonarr, select /data/tv
+- For Radarr, select /mnt/debridav/movies
+- For Sonarr, select /mnt/debridav/tv
 
 > [!WARNING]
-> Do not set the root folders outside of the DebriDav mount root ( /data in this case ).
+> Do not set the root folders outside of the DebriDav mount root ( /mnt/debridav in this case ).
 > Doing so will cause Sonarr/Radarr to download the entire file.
 
 ## Add download client
@@ -167,8 +167,8 @@ Then restart the stack by running `docker compose stop && docker compose start`
 
 ## Jellyfin
 
-Navigate to http://localhost:8096 and follow the set up wizard. The content will appear under /data. I recommend that
-you add /data/tv as a tv library and /data/movies as a movie library.
+Navigate to http://localhost:8096 and follow the set up wizard. The content will appear under /mnt/debridav. I recommend that
+you add /mnt/debridav/tv as a tv library and /mnt/debridav/movies as a movie library.
 As of right now, automatic adding of new files to libraries in Jellyfin is not working, so you may need to trigger
 a scan manually if you've added new content. This may be fixed in a future release.
 
